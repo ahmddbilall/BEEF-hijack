@@ -34,7 +34,6 @@ export default function handler(req, res) {
     return;
   }
 
-  // Return configuration
   res.status(200).json({
     beefServer: beefServerUrl,
     timestamp: new Date().toISOString(),
